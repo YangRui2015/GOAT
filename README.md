@@ -1,4 +1,5 @@
-# Weighted Goal-conditioned Supervised Learning (WGCSL)
+# OOD Generalization for Offline Goal-conditioned RL (GOAT)
+The code is based on WGCSL's.
 Code for ICLR 2022 paper [*Rethinking Goal-Conditioned Supervised Learning and Its Connection to Offline RL*](https://openreview.net/forum?id=KJztlfGPdwW) ([website](https://sites.google.com/view/wgcsl/)).
 WGCSL is a simple but effective algorithm for offline goal-conditioned Reinforcement Learning via weighted supervised learning. 
 
@@ -74,16 +75,3 @@ GCSL + Best-advantage Weight
 python -m  wgcsl.run  --env=FetchReach --num_env 1 --mode supervised --load_path ./offline_data/expert/FetchReach/ --load_buffer --offline_train  --su_method baw
 ```
 
-## Citation
-If you use WGCSL in your work, please cite:
-
-```
-@inproceedings{
-yang2022rethinking,
-title={Rethinking Goal-Conditioned Supervised Learning and Its Connection to Offline {RL}},
-author={Rui Yang and Yiming Lu and Wenzhe Li and Hao Sun and Meng Fang and Yali Du and Xiu Li and Lei Han and Chongjie Zhang},
-booktitle={International Conference on Learning Representations},
-year={2022},
-url={https://openreview.net/forum?id=KJztlfGPdwW}
-}
-```
