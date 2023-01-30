@@ -38,8 +38,6 @@ class Advque:
         return np.min(self.que[:self.current_size]), np.max(self.que[:self.current_size])
 
 advque = Advque()
-
-vque = Advque(size=10000)
 stdque = Advque(size=10000)
 
 

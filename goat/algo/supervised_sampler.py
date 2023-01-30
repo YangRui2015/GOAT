@@ -1,14 +1,10 @@
-from wgcsl.common import logger
+from goat.common import logger
 import numpy as np
-from wgcsl.algo.util import random_log
-from wgcsl.algo.adv_que import advque, vque, stdque
+from goat.algo.util import random_log
+from goat.algo.adv_que import advque, stdque
 
 global global_threshold 
-global global_threshold_density 
 global_threshold = 0
-global_threshold_density = 0
-global global_std_steps 
-global_std_steps = 0
 
 
 def make_random_sample(reward_fun):
@@ -176,7 +172,7 @@ def make_sample_transitions(replay_strategy, replay_k, reward_fun, no_relabel=Fa
                 adv = _get_reward(transitions['ag_2'], transitions['g']) + gamma * next_value  - value
                 vque.update(value)
 
-                if 'baw' or 'baw01' in method_lis:
+                if 'baw' in method_lis:
                     global global_threshold
                     if update:
                         advque.update(adv)
@@ -186,52 +182,25 @@ def make_sample_transitions(replay_strategy, replay_k, reward_fun, no_relabel=Fa
                 if 'exp' in method_lis:  # exp weights
                     if 'clip10' in method_lis:
                         weights *= np.clip(np.exp(adv), 0, 10)
-                    elif 'clip5' in method_lis:
-                        weights *= np.clip(np.exp(adv), 0, 5)
-                    elif 'clip1' in method_lis:
-                        weights *= np.clip(np.exp(adv), 0, 1)
-                    elif 'clipadv0' in method_lis:
-                        temp = np.clip(np.exp(adv), 0, 10)
-                        temp[temp < 1] = 0
-                        weights *= temp
                     elif '2' in method_lis:
                         weights *= np.exp(2 * adv)
                     elif '3' in method_lis:
                         weights *= np.exp(3 * adv)
                     else:
                         weights *= np.exp(adv) 
-                elif 'clip5' in method_lis:  # clip adv weight
-                    if '2' in method_lis:
-                        weights *= np.clip(2 * adv, 0, 5)
-                    else:
-                        weights *= np.clip(adv, 0, 5)
 
-                
-                if 'baw01' in method_lis:
-                    positive = adv.copy()
-                    positive[adv >= threshold] = 1
-                    positive[adv < threshold] = 0
-                    weights *= positive
-                elif 'baw' in method_lis:
+                if 'baw' in method_lis:
                     positive = adv.copy()
                     positive[adv >= threshold] = 1
                     positive[adv < threshold] = 0.05
                     weights *= positive
 
-                global global_std_steps
-                global_std_steps += 1
 
                 if 'std' in method: 
-                    # print(np.clip(weight_min * np.exp(value_std * weight_ratio), 0, weight_max).mean())
-                    # print(np.clip(np.tanh(value_std * weight_ratio) + weight_min, 0, weight_max).mean())
-                    # print(np.clip(value_std * weight_ratio + weight_min, 0, weight_max).mean())
-                    # import pdb;pdb.set_trace()
                     if 'norm01' in method:
                         stdque.update(value_std)
-                        std_m, std_s = stdque.mean_std()
                         std_min, std_max = stdque.min_max()
                         value_std = (value_std - std_min) / (std_max - std_min)
-                        # value_std = np.clip((value_std - std_m) / np.max(0.1, std_s))
 
                     if 'expstd' in method_lis:
                         random_log('expstd')
@@ -244,13 +213,8 @@ def make_sample_transitions(replay_strategy, replay_k, reward_fun, no_relabel=Fa
                         weights *= np.clip(value_std * weight_ratio + weight_min, 0, weight_max)
                     
             weighted_loss = train_policy(o=transitions['o'], g=transitions['g'], u=transitions['u'], weights=weights, update=update)  
-            ### supervised loss without weights
-            supervised_loss = train_policy(o=transitions['o'], g=transitions['g'], u=transitions['u'], update=False)  
-            loss = [weighted_loss, supervised_loss] 
+            loss = weighted_loss
 
-        # keep_origin_rate = 0.2
-        # origin_index = (np.random.uniform(size=batch_size) < keep_origin_rate)
-        # transitions['g'][origin_index] = original_g[origin_index]
         transitions['r'] = _get_reward(transitions['ag_2'], transitions['g']) 
         transitions['loss'] = loss
         return _reshape_transitions(transitions, batch_size, batch_size_in_transitions)

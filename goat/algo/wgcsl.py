@@ -4,14 +4,13 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.contrib.staging import StagingArea
 
-from wgcsl.common import logger
-from wgcsl.algo.util import (
+from goat.common import logger
+from goat.algo.util import (
     import_function, store_args, flatten_grads, transitions_in_episode_batch)
-from wgcsl.algo.normalizer import Normalizer
-from wgcsl.algo.replay_buffer import ReplayBuffer
-from wgcsl.common.mpi_adam import MpiAdam
-from wgcsl.common import tf_util
-from wgcsl.algo.density import KernelDensityModule
+from goat.algo.normalizer import Normalizer
+from goat.algo.replay_buffer import ReplayBuffer
+from goat.common.mpi_adam import MpiAdam
+from goat.common import tf_util
 
 
 def dims_to_shapes(input_dims):
@@ -25,12 +24,9 @@ class WGCSL(object):
                  rollout_batch_size, subtract_goals, relative_goals, clip_pos_returns, clip_return,
                  sample_transitions, random_sampler, gamma,  supervised_sampler, use_supervised, su_method,
                  use_conservation=False, conservation_sampler=None, reuse=False, offline_train=False,
-                 use_noise_p=False, use_noise_q=False, smooth_eps=0, psmooth_reg=0, qsmooth_reg=0,
-                use_vex=False, obs_to_goal=None, use_kde=False, use_iql=True, iql_tau=0.9, **kwargs):
+                obs_to_goal=None, use_kde=False, use_ER=False, ER_tau=0.5, **kwargs):
         """Implementation of policy with value funcion that is used in combination with WGCSL
         """
-        self.use_validation = False
-        
         if self.clip_return is None:
             self.clip_return = np.inf
 
@@ -48,20 +44,11 @@ class WGCSL(object):
             stage_shapes[key] = (None, *input_shapes[key])
         for key in ['o', 'g']:
             stage_shapes[key + '_2'] = stage_shapes[key]
-        # for smooth
-        if self.use_noise_p or self.use_noise_q:
-            stage_shapes['noise_o'] = stage_shapes['o']
-            stage_shapes['noise_g'] = stage_shapes['g']
 
         stage_shapes['r'] = (None,)
         self.stage_shapes = stage_shapes
-        self.validation_batchsize = 1024
         if self.use_conservation:
-            stage_shapes['neg_u'] = stage_shapes['u']
-
-        # smooth 
-        self.policy_smooth_reg = psmooth_reg  
-        self.Q_smooth_reg = qsmooth_reg        
+            stage_shapes['neg_u'] = stage_shapes['u'] 
 
         # Create network.
         with tf.variable_scope(self.scope):
@@ -108,12 +95,7 @@ class WGCSL(object):
             sampler = self.sample_transitions
             info = {}
         
-        # if use kde
-        if self.use_kde:
-            self.kde = KernelDensityModule()
-            info['kde'] = self.kde
-        
-        self.buffer = ReplayBuffer(buffer_shapes, buffer_size, self.T, sampler, self.sample_transitions, info, validation_rate=0) 
+        self.buffer = ReplayBuffer(buffer_shapes, buffer_size, self.T, sampler, self.sample_transitions, info) 
 
     def _random_action(self, n):
         return np.random.uniform(low=-self.max_u, high=self.max_u, size=(n, self.dimu))
@@ -128,14 +110,6 @@ class WGCSL(object):
         o = np.clip(o, -self.clip_obs, self.clip_obs)
         g = np.clip(g, -self.clip_obs, self.clip_obs)
         return o, g
-
-    def _get_noise_og(self, o, g, eps):
-        obs_std = self.o_stats.std_numpy
-        g_std = self.g_stats.std_numpy
-        obs_noise = eps * obs_std * (np.ones(obs_std.shape) - 0.5) * 2
-        g_noise = eps * g_std * (np.ones(g_std.shape) - 0.5) * 2
-        obs_to_goal_fun = self.obs_to_goal
-        return self._preprocess_og(o + obs_noise, obs_to_goal_fun(o+obs_noise) , g+g_noise)
 
     def step(self, obs):
         actions = self.get_actions(obs['observation'], obs['achieved_goal'], obs['desired_goal'], use_target_net=use_target_net)
@@ -254,36 +228,12 @@ class WGCSL(object):
         if weights is None:
             weights = np.ones(o.shape[0])
         
-        # pi_sl_loss, pi_sl_grad = self.sess.run(
-        #     [self.policy_sl_loss, self.pi_sl_grad_tf],
-        #     feed_dict={
-        #         self.gcsl_weight_tf: weights,
-        #         self.main.o_tf: o,
-        #         self.main.g_tf: g,
-        #         self.main.u_tf : u
-        #     }
-        # )
         feed_dict={
                 self.gcsl_weight_tf: weights,
                 self.main.o_tf: o,
                 self.main.g_tf: g,
                 self.main.u_tf : u,
             }
-        
-        if self.use_noise_p or self.use_noise_q:
-            noise_o, noise_g = self._get_noise_og(o, g, self.smooth_eps)
-            feed_dict[self.main.noise_o] = noise_o
-            feed_dict[self.main.noise_g] = noise_g
-        elif self.use_vex:
-            num = 5
-            select_num = np.random.choice(np.arange(g.shape[0]), num)
-            if original_g is not None:
-                g_selected = original_g[select_num]
-            else:
-                g_selected = g[select_num]
-            for i, g_tmp in enumerate(g_selected):
-                feed_dict[self.main.g_vex_lis[i]] = np.zeros(g.shape) + g_tmp
-
         pi_sl_loss, pi_sl_grad = self.sess.run([self.policy_sl_loss, self.pi_sl_grad_tf], feed_dict=feed_dict)
 
         if update:
@@ -333,9 +283,6 @@ class WGCSL(object):
             self.o_stats.recompute_stats()
             self.g_stats.recompute_stats()
         
-        if self.use_noise_p or self.use_noise_q:
-            transitions['noise_o'], transitions['noise_g'] = self._get_noise_og(o, g, self.smooth_eps)
-
         transitions_batch_list = [transitions[key] for key in self.stage_shapes.keys()]
         return transitions_batch_list, transitions
 
@@ -360,65 +307,17 @@ class WGCSL(object):
             return critic_loss, actor_loss
         # WGCSL needs to learn the value function
         else:
+            critic_loss = 0
             # GCSL does not need to learn value function
             if self.use_supervised and self.su_method not in ['', 'gamma']:
                 critic_loss = self.update_critic_only()
-            ### monitor train loss
-            critic_loss, actor_loss = self.actor_critic_loss(transitions, self.batch_size)
-        return critic_loss, actor_loss
+        return critic_loss, 0
 
-    def validate(self):
-        if not self.use_validation:
-            return 0, 0, 0 ,0
-        # do not update networks here
-        batch_size = self.validation_batchsize
-        self.buffer.info['update'] = False
-        transitions = self.buffer.sample(batch_size, validation=True)  
-        self.buffer.info['update'] = True
-        weighted_loss, supervised_loss = 0, 0
-        if self.use_supervised:
-            loss = transitions.pop('loss')
-            if type(loss) == list:
-                weighted_loss, supervised_loss = loss
-            else:
-                supervised_loss = loss
-
-        critic_loss, actor_loss = self.actor_critic_loss(transitions, batch_size)
-        return critic_loss, actor_loss, weighted_loss, supervised_loss
-
-
-    def actor_critic_loss(self, transitions, batch_size):
-        # o, o_2, g = transitions['o'], transitions['o_2'], transitions['g']
-        # ag, ag_2 = transitions['ag'], transitions['ag_2']
-        # transitions['o'], transitions['g'] = self._preprocess_og(o, ag, g)
-        # transitions['o_2'], transitions['g_2'] = self._preprocess_og(o_2, ag_2, g)
-        # # self.stage_batch(batch=transitions, batch_size=batch_size)
-        # critic_loss, actor_loss = self.sess.run([  
-        #     self.Q_loss_tf,
-        #     self.pi_loss_tf,
-        #     feed_dict={
-
-        #     }
-        # ])
-        actor_loss, critic_loss = 0, 0
-        return critic_loss, actor_loss
-    
     def update_critic_only(self):
-        # Q_diff, pos_idxs, iql_weight, iql_Q_loss_tf 
         critic_loss, Q_grad = self.sess.run([  
-            # self.target.Q_pi_tf,
-            # self.batch_r,
-            # self.target_tf,
-            # self.main.Q_tf,
             self.Q_loss_tf,
             self.Q_grad_tf,
-            # self.Q_diff,
-            # self.pos_idxs,
-            # self.iql_weight,
-            # self.iql_Q_loss_tf, 
         ])
-        # if np.random.random() < 1:
-        #     print(Q_smooth_loss)
         self.Q_adam.update(Q_grad, self.Q_lr)
         return critic_loss
 
@@ -486,53 +385,25 @@ class WGCSL(object):
         target_tf = tf.clip_by_value(batch_tf['r'] + self.gamma * target_Q_pi_tf, *clip_range)
 
         self.target_tf = target_tf
-        # if self.use_iql:
-        #     Q_diff = tf.stop_gradient(target_tf) - self.main.Q_tf
-        #     pos = Q_diff[tf.greater(Q_diff,0.0)]
-        #     neg = Q_diff[tf.greater(0.0, Q_diff)]
-        #     self.Q_loss_tf = (self.iql_tau * tf.reduce_sum(tf.square(pos)) + (1-self.iql_tau) * tf.reduce_sum(tf.square(neg))) / self.batch_size
-        # else:
-        # self.Q_loss_tf = tf.reduce_mean(tf.square(tf.stop_gradient(target_tf) - self.main.Q_tf))
-        ########## IQL
-        if self.use_iql:
+        if self.use_ER: # expectile regression
             self.Q_diff = (tf.stop_gradient(target_tf) - self.main.Q_tf)[:,0]
             self.pos_idxs = tf.greater(self.Q_diff,0.0)
             self.pos_idxs_float = tf.cast(self.pos_idxs,dtype=tf.float32)
-            self.iql_weight = tf.ones(self.batch_size) * self.iql_tau + (1 - 2 * self.iql_tau) * self.pos_idxs_float
-            self.Q_loss_tf = tf.reduce_mean(self.iql_weight * tf.square(self.Q_diff)) 
+            self.ER_weight = tf.ones(self.batch_size) * self.ER_tau + (1 - 2 * self.ER_tau) * self.pos_idxs_float
+            self.Q_loss_tf = tf.reduce_mean(self.ER_weight * tf.square(self.Q_diff)) 
         else:
             self.Q_loss_tf = tf.reduce_mean(tf.square(tf.stop_gradient(target_tf) - self.main.Q_tf))
         
         if self.use_conservation:
-            # self.conservation_loss = tf.reduce_mean(self.main.Q_tf_neg)
             self.Q_loss_tf +=  tf.clip_by_value(tf.reduce_mean(self.main.Q_tf_neg), *clip_range)
-            # self.Q_loss_tf += tf.reduce_mean(self.main.Q_tf_neg)
 
         self.pi_loss_tf = -tf.reduce_mean(self.main.Q_pi_tf)
         self.pi_loss_tf += self.action_l2 * tf.reduce_mean(tf.square(self.main.pi_tf / self.max_u))
-        # self.temp_pi_loss = -tf.reduce_mean(self.main.Q_pi_tf) + self.action_l2 * tf.reduce_mean(tf.square(self.main.pi_tf / self.max_u))
-        # self.temp_action_loss = self.action_l2 * tf.reduce_mean(tf.square(self.main.pi_tf / self.max_u))
 
         # training policy with supervised learning
         self.gcsl_weight_tf = tf.placeholder(tf.float32, shape=(None,) , name='weights')
         self.weighted_sl_loss = tf.reduce_mean(tf.square(self.main.u_tf - self.main.pi_tf),axis=1)
         self.policy_sl_loss = tf.reduce_mean(self.gcsl_weight_tf * self.weighted_sl_loss)  
-
-        ### VEx regularization
-        if self.use_vex:
-            self.risks = [tf.reduce_mean(tf.square(self.main.u_tf - x)) for x in self.main.pi_vex_tf]
-            self.vex_loss = tf.math.reduce_variance(self.risks) 
-            self.policy_sl_loss = self.policy_sl_loss + 0.2 * self.vex_loss
-
-        ### policy smooth loss
-        if self.use_noise_p:
-            self.policy_smooth_loss = self.policy_smooth_reg * tf.reduce_mean(tf.square(self.main.noise_pi_tf - self.main.pi_tf))
-            self.pi_loss_tf += self.policy_smooth_loss
-            self.policy_sl_loss += self.policy_smooth_loss
-        ### Q smooth loss
-        if self.use_noise_q:
-            self.Q_smooth_loss = self.Q_smooth_reg * tf.reduce_mean(tf.square(self.main.Q_tf - self.main.noise_Q_tf))
-            self.Q_loss_tf += self.Q_smooth_loss
 
         Q_grads_tf = tf.gradients(self.Q_loss_tf, self._vars('main/Q'))
         pi_grads_tf = tf.gradients(self.pi_loss_tf, self._vars('main/pi'))

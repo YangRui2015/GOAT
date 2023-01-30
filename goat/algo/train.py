@@ -5,13 +5,13 @@ from mpi4py import MPI
 import time
 import copy
 
-from wgcsl.common import logger
-from wgcsl.common import tf_util
-from wgcsl.common.util import set_global_seeds
-from wgcsl.common.mpi_moments import mpi_moments
-import wgcsl.algo.config as config
-from wgcsl.algo.rollout import RolloutWorker
-from wgcsl.algo.util import dump_params
+from goat.common import logger
+from goat.common import tf_util
+from goat.common.util import set_global_seeds
+from goat.common.mpi_moments import mpi_moments
+import goat.algo.config as config
+from goat.algo.rollout import RolloutWorker
+from goat.algo.util import dump_params
 
 def mpi_average(value):
     if not isinstance(value, list):
@@ -82,13 +82,6 @@ def train(*, policy, rollout_worker, evaluator,
             logger.record_tabular('train/weighted supervised loss', mpi_average(np.mean(policy.weighted_loss)))
             policy.supervised_loss = []
             policy.weighted_loss = []
-        ## validation
-        critic_loss, actor_loss, weighted_loss, supervised_loss = policy.validate()
-        logger.record_tabular('val/critic loss', critic_loss)
-        logger.record_tabular('val/expected_value', - actor_loss)
-        if policy.use_supervised:
-            logger.record_tabular('val/supervised loss', supervised_loss)
-            logger.record_tabular('val/weighted supervised loss', weighted_loss)
         
         if rank == 0:
             logger.dump_tabular()
@@ -171,20 +164,16 @@ def learn(*, env, num_epoch,
             config.log_params(params, logger=logger)
 
     dims = config.configure_dims(params)
-    policy = config.configure_wgcsl(dims=dims, params=params, clip_return=clip_return, offline_train=offline_train, reuse=reuse_graph)
+    policy = config.configure_agent(dims=dims, params=params, clip_return=clip_return, offline_train=offline_train, reuse=reuse_graph)
     if load_path is not None:
         if load_model:
-            # tf_util.load_variables('/home/ryangam/logs/OOD_new/ensemble_100epoch_6layers/pick/exp_adv_2_clip10_baw_tanhstd_nodelay_norm01_ratio2clipmax1/seed_1/FetchPick-expert/left/policy_last.pkl')
-            if 'pkl' not in load_path:
-                tf_util.load_variables(os.path.join(load_path, 'policy_last.pkl'))
-            else:
-                tf_util.load_variables(load_path)
+            path = load_path if '.pkl' in load_path else os.path.join(load_path, 'policy_last.pkl')
+            tf_util.load_variables(path)
         
         if load_buffer:
-            if '.pkl' in load_path:
-                policy.buffer.load(load_path)
-            else:
-                policy.buffer.load(os.path.join(load_path, 'buffer.pkl'))
+            path = load_path if '.pkl' in load_path else os.path.join(load_path, 'buffer.pkl')
+            policy.buffer.load(path)
+            
 
     rollout_params = {
         'exploit': False,
@@ -212,29 +201,33 @@ def learn(*, env, num_epoch,
     if play_no_training:  
         # sample trajetories
         policy.buffer.clear_buffer()
-        # num_trajs = 1
-        # num_trajs = 5
-        # num_episode = len(evaluator.venv.envs[0].fixed_goal_set) * num_trajs
-        num_episode = 200
-        curr_trajs = 0
+        if 'Point' in env_name:
+            num_trajs = 1
+            num_episode = len(evaluator.venv.envs[0].fixed_goal_set) * num_trajs
+        else:
+            num_episode = 200
+        
+        ## for exploration, not used for evaluation
         # evaluator.noise_eps = 0.1
         # evaluator.exploit = False
+        curr_trajs = 0
         success = 0
         sum_return = 0
         for _ in range(num_episode):
-            # g = np.array([evaluator.venv.envs[0].fixed_goal_set[curr_trajs // num_trajs] ])
-            # episode = evaluator.generate_rollouts(assign_goal=g)
-            episode = evaluator.generate_rollouts()
+            if 'Point' in env_name:
+                g = np.array([evaluator.venv.envs[0].fixed_goal_set[curr_trajs // num_trajs] ])
+                episode = evaluator.generate_rollouts(assign_goal=g)
+            else:
+                episode = evaluator.generate_rollouts()
             policy.store_episode(episode, update_stats=False)
             success += episode['r'][0][-1] + 1
             sum_return += (episode['r']+1).sum() 
             curr_trajs += 1
         logger.log('success rate: ', success / curr_trajs)
         logger.log('average return: ', sum_return / curr_trajs)
-        #### point
-        # if save_path:
-        #     buffer_path = os.path.join(save_path, 'buffer_{}.pkl'.format(env_name))
-        #     policy.buffer.save(buffer_path)
+        if 'Point' in env_name and save_path:
+            buffer_path = os.path.join(save_path, 'buffer_{}.pkl'.format(env_name))
+            policy.buffer.save(buffer_path)
         return [success / curr_trajs, sum_return / curr_trajs]
 
     return train(

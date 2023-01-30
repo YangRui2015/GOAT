@@ -2,7 +2,7 @@ from collections import deque
 
 import numpy as np
 
-from wgcsl.algo.util import convert_episode_to_batch_major, store_args, discounted_return
+from goat.algo.util import convert_episode_to_batch_major, store_args, discounted_return
 
 
 class RolloutWorker:

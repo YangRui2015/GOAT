@@ -5,14 +5,14 @@ import numpy as np
 from gym import spaces
 from pygame import Color
 
-from wgcsl.envs.multitask_env import MultitaskEnv
-from wgcsl.envs.serializable import Serializable
-from wgcsl.envs.env_util import (
+from goat.envs.multitask_env import MultitaskEnv
+from goat.envs.serializable import Serializable
+from goat.envs.env_util import (
     get_stat_in_paths,
     create_stats_ordered_dict,
 )
-from wgcsl.envs.pygame_viewer import PygameViewer
-from wgcsl.envs.walls import VerticalWall, HorizontalWall
+from goat.envs.pygame_viewer import PygameViewer
+from goat.envs.walls import VerticalWall, HorizontalWall
 
 
 class Point2DEnv(MultitaskEnv, Serializable):

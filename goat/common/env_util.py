@@ -6,7 +6,7 @@ import os
 import re
 import sys
 import tensorflow as tf
-from wgcsl.envs.env_util import get_full_envname
+from goat.envs.env_util import get_full_envname
 try:
     from mpi4py import MPI
 except ImportError:
@@ -16,14 +16,14 @@ import gym
 import multiprocessing
 from collections import defaultdict
 from gym.wrappers import FlattenObservation
-from wgcsl.common import logger
-from wgcsl.common.monitor import Monitor
-from wgcsl.common.util import set_global_seeds
-from wgcsl.common.subproc_vec_env import SubprocVecEnv
-from wgcsl.common.dummy_vec_env import DummyVecEnv
-from wgcsl.common.wrappers import ClipActionsWrapper
-from wgcsl.common.tf_util import get_session
-from wgcsl.envs import register_envs
+from goat.common import logger
+from goat.common.monitor import Monitor
+from goat.common.util import set_global_seeds
+from goat.common.subproc_vec_env import SubprocVecEnv
+from goat.common.dummy_vec_env import DummyVecEnv
+from goat.common.wrappers import ClipActionsWrapper
+from goat.common.tf_util import get_session
+from goat.envs import register_envs
  
 register_envs()
 
@@ -93,22 +93,22 @@ def make_env(env_id, env_type, mpi_rank=0, subrank=0, seed=None, reward_scale=1.
     env = gym.make(env_id, **env_kwargs)
 
     if env_id.startswith('Fetch'):
-        from wgcsl.envs.multi_world_wrapper import FetchGoalWrapper
+        from goat.envs.multi_world_wrapper import FetchGoalWrapper
         env._max_episode_steps = 50
         env = FetchGoalWrapper(env)
     elif env_id.startswith('Hand'):
         env._max_episode_steps = 100
     elif env_id.startswith('Sawyer'):
-        from wgcsl.envs.multi_world_wrapper import SawyerGoalWrapper
+        from goat.envs.multi_world_wrapper import SawyerGoalWrapper
         env = SawyerGoalWrapper(env)
         if not hasattr(env, '_max_episode_steps'):
             env = gym.wrappers.TimeLimit(env, max_episode_steps=50)
     elif env_id.startswith('Point'):
-        from wgcsl.envs.multi_world_wrapper import PointGoalWrapper
+        from goat.envs.multi_world_wrapper import PointGoalWrapper
         env = gym.wrappers.TimeLimit(env, max_episode_steps=50)
         env = PointGoalWrapper(env)
     elif env_id.startswith('Reacher'):
-        from wgcsl.envs.multi_world_wrapper import ReacherGoalWrapper
+        from goat.envs.multi_world_wrapper import ReacherGoalWrapper
         env._max_episode_steps = 50
         env = ReacherGoalWrapper(env)
     else:

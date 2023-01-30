@@ -1,4 +1,4 @@
-import wgcsl.common.tf_util as U
+import goat.common.tf_util as U
 import tensorflow as tf
 import numpy as np
 try:

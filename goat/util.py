@@ -1,4 +1,4 @@
-from wgcsl.common import logger
+from goat.common import logger
 try:
     from mpi4py import MPI
 except ImportError:

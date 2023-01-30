@@ -54,40 +54,6 @@ def arg_parser():
     return argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
 
-def common_arg_parser():
-    """
-    Create an argparse.ArgumentParser for run_mujoco.py.
-    """
-    parser = arg_parser()
-    parser.add_argument('--env', help='environment ID', type=str, default='Reacher-v2')
-    parser.add_argument('--env_type', help='type of environment, used when the environment type cannot be automatically determined', type=str)
-    parser.add_argument('--seed', help='RNG seed', type=int, default=None)
-    # parser.add_argument('--alg', help='Algorithm', type=str, default='her')
-    parser.add_argument('--network', help='network type mlp', default='mlp')
-    parser.add_argument('--num_epoch', help='number of epochs to train', type=int, default=50)
-    parser.add_argument('--num_env', help='Number of environment copies being run', default=1, type=int)
-    parser.add_argument('--save_path', help='Path to save trained model to', default=None, type=str)
-    parser.add_argument('--load_path', help='Path to load trained model to', default=None, type=str)
-    parser.add_argument('--log_path', help='Directory to save learning curve data.', default=None, type=str)
-    parser.add_argument('--save_buffer', help='If save the buffer or not', action='store_true')
-    parser.add_argument('--load_buffer', help='If to load the offline buffer', action='store_true')
-    parser.add_argument('--load_model', help='If to load the saved model', action='store_true')
-    parser.add_argument('--play', default=False, action='store_true')
-    parser.add_argument('--play_no_training', default=False, action='store_true')
-    parser.add_argument('--mode', help='mode of algorithms "dynamic", "supervised"', default=None, type=str)
-    parser.add_argument('--su_method', help='method for supervised learning', default='', type=str)
-    parser.add_argument('--offline_train', help='If training offline or not', default=False, action='store_true')
-    # smooth
-    parser.add_argument('--use_noise_p', help='If smooth the policy or not', default=False, action='store_true')
-    parser.add_argument('--use_noise_q', help='If smooth the Q function or not', default=False, action='store_true')
-    parser.add_argument('--smooth_eps', help='The smooth range', default=0.0, type=float)
-    parser.add_argument('--psmooth_reg', help='The coefficient of policy smooth loss', default=0.0, type=float)
-    parser.add_argument('--qsmooth_reg', help='The coefficient of Q function smooth loss', default=0.0, type=float)
-    # vex
-    parser.add_argument('--use_vex', help='If use VEx or not', default=False, action='store_true')
-    return parser
-
-
 def parse_unknown_args(args):
     """
     Parse arguments not consumed by arg parser into a dictionary

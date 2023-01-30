@@ -8,7 +8,7 @@ import functools
 import tensorflow as tf
 import numpy as np
 
-from wgcsl.common import tf_util as U
+from goat.common import tf_util as U
 
 
 def store_args(method):
@@ -85,8 +85,7 @@ def spectral_norm(w, name, iteration=1, reuse=False):
     return w_norm
 
 
-def nn(input, layers_sizes, reuse=None, flatten=False, name="", trainable='True', init='xavier', init_range=0.01,
-        use_spectral_norm=False): ################################
+def nn(input, layers_sizes, reuse=None, flatten=False, name="", trainable='True', init='xavier', init_range=0.01): 
     """Creates a simple neural network
     """
     if init == 'xavier':
@@ -104,11 +103,6 @@ def nn(input, layers_sizes, reuse=None, flatten=False, name="", trainable='True'
                                 reuse=reuse,
                                 name=str(i),
                                 trainable=trainable)
-        if use_spectral_norm and i == len(layers_sizes) - 2: ############
-            weights = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,'wgcsl/{}/2'.format(name))[0]
-            norm_weights = spectral_norm(weights, name + str(i), reuse=reuse)
-            weights.assign(norm_weights)
-
         if activation:
             input = activation(input)
     if flatten:
@@ -270,10 +264,7 @@ def discounted_return(rewards, gamma, reward_offset=True):
 
 def obs_to_goal_fun(env):
     from gym.envs.robotics import FetchEnv, hand_env
-    from wgcsl.envs import point2d
-    from wgcsl.envs import sawyer_reach
-    from gym.envs.mujoco import reacher
-    from wgcsl.envs.sawyer_door_hook import SawyerDoorHookEnv
+    from goat.envs import point2d
     tmp_env = env
     while hasattr(tmp_env, 'env'):
         tmp_env = tmp_env.env
@@ -296,15 +287,6 @@ def obs_to_goal_fun(env):
     elif isinstance(tmp_env, point2d.Point2DEnv):
         def obs_to_goal(observation):
             return observation.copy()
-    elif isinstance(tmp_env, sawyer_reach.SawyerReachXYZEnv):
-        def obs_to_goal(observation):
-            return observation
-    elif isinstance(tmp_env, reacher.ReacherEnv):
-        def obs_to_goal(observation):
-            return observation[:, -3:-1]
-    elif isinstance(tmp_env, SawyerDoorHookEnv):
-        def obs_to_goal(observation):
-            return observation[:, -1]
     else:
         def obs_to_goal(observation):
             return observation 

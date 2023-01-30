@@ -2,12 +2,12 @@ import os
 import numpy as np
 import gym
 
-from wgcsl.common import logger
-from wgcsl.algo.wgcsl_ensemble import WGCSL
-# from wgcsl.algo.wgcsl import WGCSL
-from wgcsl.algo.supervised_sampler import make_sample_transitions, make_random_sample
-from wgcsl.common.monitor import Monitor
-from wgcsl.envs.multi_world_wrapper import PointGoalWrapper, SawyerGoalWrapper, ReacherGoalWrapper, FetchGoalWrapper
+from goat.common import logger
+from goat.algo.goat import GOAT
+from goat.algo.wgcsl import WGCSL
+from goat.algo.supervised_sampler import make_sample_transitions, make_random_sample
+from goat.common.monitor import Monitor
+from goat.envs.multi_world_wrapper import PointGoalWrapper, SawyerGoalWrapper, ReacherGoalWrapper, FetchGoalWrapper
 
 # offline parameters
 DEFAULT_ENV_PARAMS = {
@@ -19,40 +19,12 @@ DEFAULT_ENV_PARAMS = {
         'batch_size': 128,
         'polyak': 0.9,
     },
-    'Point2DLargeEnv-v1':{
-         'n_cycles':5,
-         'n_batches': 1,
-         'baw_delta': 0.15,
-    },
-    'Point2D-FourRoom-v1':{
-        'n_cycles':5,
-        'n_batches': 1,
-        'baw_delta': 0.15,
-    },
-    'SawyerReachXYZEnv-v1':{
-        'n_cycles':5,
-        'n_batches': 5,   
-        'baw_delta': 0.15,
-        'num_epoch':100, 
-    },
     'FetchReach-v1': {
         'n_cycles': 5,  
         'n_batches': 5, 
         'baw_delta': 0.15,
-        'num_epoch':100, 
+        'num_epoch': 100,
     },
-    'Reacher-v2': {
-        'n_cycles': 10,  
-        'n_batches': 10,
-        'baw_delta': 0.15,
-        'num_epoch':200, 
-    },
-    'SawyerDoor-v0':{
-        'n_cycles': 10,  
-        'n_batches': 10, 
-        'baw_delta': 0.15,
-        'num_epoch':200, 
-        },
     'FetchPush-v1':{
         'batch_size': 512,
         'n_cycles': 20,  
@@ -67,13 +39,6 @@ DEFAULT_ENV_PARAMS = {
         'baw_delta': 0.01,
         'num_epoch':100, 
         'relabel_ratio': 0.5,  # 0.2 for leftright, 0.5 for far  
-        },
-    'FetchStack2-v1':{
-        'batch_size': 512, 
-        'n_cycles': 20,  
-        'n_batches': 20, 
-        'baw_delta': 0.01,
-        'num_epoch':100, 
         },
     'FetchPickAndPlace-v1':{
         'batch_size': 512,
@@ -90,13 +55,6 @@ DEFAULT_ENV_PARAMS = {
         'num_epoch':100,
         'baw_max': 50, 
         },
-    'HandManipulateBlockRotateXYZ-v0':{
-        'batch_size': 512,
-        'n_cycles': 20,  
-        'n_batches': 20, 
-        'baw_delta': 0.01,
-        'num_epoch':100, 
-        }
 }
 
 
@@ -104,16 +62,15 @@ DEFAULT_PARAMS = {
     # env
     'max_u': 1.,  # max absolute value of actions on each coordinate
     'layers': 3,  # number of layers in the critic/actor networks
-    'hidden': 256,  # 256 number of neurons in each hidden layers
-    # 'network_class': 'wgcsl.algo.actor_critic:ActorCritic',     
-    'network_class': 'wgcsl.algo.actor_critic_ensemble:ActorCritic',       
-    'Q_lr': 5e-4,  # 5e-4 critic learning rate
-    'pi_lr': 5e-4,  #5e-4 actor learning rate
+    'hidden': 256,  # number of neurons in each hidden layers
+    'network_class': 'goat.algo.actor_critic:ActorCritic',    
+    'Q_lr': 5e-4,  # critic learning rate
+    'pi_lr': 5e-4,  # actor learning rate
     'buffer_size': int(1E6),  # for experience replay
-    'polyak': 0.95,  #polyak averaging coefficient 
+    'polyak': 0.95,  # polyak averaging coefficient 
     'action_l2': 1.0,  # quadratic penalty on actions (before rescaling by max_u)
     'clip_obs': 200.,
-    'scope': 'wgcsl',
+    'scope': 'goat',
     'relative_goals': False,
     # training
     'num_epoch':100, 
@@ -127,7 +84,7 @@ DEFAULT_PARAMS = {
     'random_eps': 0.3,  # percentage of time a random action is taken
     'noise_eps': 0.2,  # std of gaussian noise added to not-completely-random actions as a percentage of max_u
     # random init episode, not used int the offline setting
-    'random_init':20,
+    'random_init': 0,
     'relabel_ratio': 1,    
 
     # goal relabeling
@@ -143,25 +100,22 @@ DEFAULT_PARAMS = {
     'baw_max': 80, 
 
     # if do not use her
-    'no_relabel':False ,   # used for no relabel
+    'no_relabel':False ,   # True for no relabel
 
-    # conservation
+    # conservation q learning
     'use_conservation': False,
 
-    # smooth
-    'use_noise_p': False,
-    'use_noise_q': False,
-    'smooth_eps': 0,
-    'psmooth_reg': 0,
-    'qsmooth_reg': 0,
-
-    # vex
-    'use_vex': False,
+    # ensemble for value networks
+    'use_ensemble': False,
 
     ### weight params,
     'weight_ratio': 1,
     'weight_min': 0.5,
     'weight_max': 1.5,
+
+    # expectile regression
+    'use_ER': False,
+    'ER_tau': 0.5,
 }
 
 
@@ -191,22 +145,27 @@ def cached_make_env(make_env):
 def prepare_mode(kwargs):
     if 'mode' in kwargs.keys():
         mode = kwargs['mode']
-        if mode == 'supervised':
+        if mode == 'goat':
             kwargs['use_supervised'] = True
-        elif mode == 'conservation':
-            kwargs['use_conservation'] = True
-        else:
-            kwargs['use_supervised'] = False
-    else:
+            kwargs['use_ensemble'] = True
+        else: 
+            if 'ensemble' in mode:
+                kwargs['use_ensemble'] = True
+
+            if 'supervised' in mode: # BC, GCSL, WGCSL
+                kwargs['use_supervised'] = True
+            elif 'conservation' in mode:  # DDPG+CQL
+                kwargs['use_conservation'] = True
+
+    else: # for DDPG, DDPG+HER
         kwargs['use_supervised'] = False
     return kwargs
 
 
 def prepare_params(kwargs):
-    # default max episode steps
     kwargs = prepare_mode(kwargs)
     default_max_episode_steps = 50
-    # WGCSL params
+    # agent params
     wgcsl_params = dict()
     env_name = kwargs['env_name']
     def make_env(subrank=None):
@@ -218,15 +177,9 @@ def prepare_params(kwargs):
         if env_name.startswith('Fetch'):
             env._max_episode_steps = 50
             env = FetchGoalWrapper(env)
-        elif env_name.startswith('HandManipulate'):
-            env._max_episode_steps = 100
         elif env_name.startswith('Point'):
             env = PointGoalWrapper(env)
             env.env._max_episode_steps = 50
-        elif env_name.startswith('Sawyer'): 
-            env = SawyerGoalWrapper(env)
-        elif env_name.startswith('Reacher'):
-            env = ReacherGoalWrapper(env)
 
         if (subrank is not None and logger.get_dir() is not None):
             try:
@@ -241,8 +194,7 @@ def prepare_params(kwargs):
                 max_episode_steps = env._max_episode_steps
             else:
                 max_episode_steps = default_max_episode_steps # otherwise use defaulit max episode steps
-            env =  Monitor(env,
-                           os.path.join(logger.get_dir(), str(mpi_rank) + '.' + str(subrank)),
+            env =  Monitor(env, os.path.join(logger.get_dir(), str(mpi_rank) + '.' + str(subrank)),
                            allow_early_resets=True)
             # hack to re-expose _max_episode_steps (ideally should replace reliance on it downstream)
             env = gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)
@@ -264,8 +216,7 @@ def prepare_params(kwargs):
     for name in ['buffer_size', 'hidden', 'layers','network_class','polyak','batch_size', 
                  'Q_lr', 'pi_lr', 'norm_eps', 'norm_clip', 'max_u','action_l2', 'clip_obs', 
                  'scope', 'relative_goals', 'use_supervised', 'use_conservation',
-                 'use_noise_p', 'use_noise_q', 'smooth_eps', 'psmooth_reg', 'qsmooth_reg',
-                  'use_vex', 'relabel_ratio']:
+                 'relabel_ratio', 'use_ER', 'ER_tau']:
         wgcsl_params[name] = kwargs[name]
         kwargs['_' + name] = kwargs[name]
         del kwargs[name]
@@ -310,19 +261,19 @@ def simple_goal_subtract(a, b):
     assert a.shape == b.shape
     return a - b
 
-def configure_wgcsl(dims, params, reuse=False, use_mpi=True, clip_return=True, offline_train=False):
+def configure_agent(dims, params, reuse=False, use_mpi=True, clip_return=True, offline_train=False):
     samplers, reward_fun = configure_her(params)
-    # Extract relevant parameters.
     rollout_batch_size = params['rollout_batch_size']
-    wgcsl_params = params['wgcsl_params']
+    agent_params = params['wgcsl_params']
 
     input_dims = dims.copy()
-    # WGCSL agent
+    # agent
     env = cached_make_env(params['make_env'])
     env.reset()
-    from wgcsl.algo.util import obs_to_goal_fun
+    from goat.algo.util import obs_to_goal_fun
     obs_to_goal = obs_to_goal_fun(env)
-    wgcsl_params.update({'input_dims': input_dims,  # agent takes an input observations
+    agent_params.update({'input_dims': input_dims,  # agent takes an input observations
+                         'use_ensemble': params['use_ensemble'],
                         'T': params['T'],
                         'clip_pos_returns': True,  # clip positive returns
                         'clip_return': (1. / (1. - params['gamma'])) if clip_return else np.inf,  # max abs of return 
@@ -341,11 +292,16 @@ def configure_wgcsl(dims, params, reuse=False, use_mpi=True, clip_return=True, o
                         'weight_min': params['weight_min'],
                         'weight_max': params['weight_max'],
                         })
-    wgcsl_params['info'] = {
+    agent_params['info'] = {
         'env_name': params['env_name'],
         'reward_fun':reward_fun
     } 
-    policy = WGCSL(reuse=reuse, **wgcsl_params, use_mpi=use_mpi, offline_train=offline_train)  
+
+    if agent_params['use_ensemble']:
+        agent_params['network_class'] = 'goat.algo.actor_critic_ensemble:ActorCritic_Ensemble'
+        policy = GOAT(reuse=reuse, **agent_params, use_mpi=use_mpi, offline_train=offline_train)  
+    else:
+        policy = WGCSL(reuse=reuse, **agent_params, use_mpi=use_mpi, offline_train=offline_train)  
     return policy
 
 

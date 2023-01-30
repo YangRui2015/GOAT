@@ -1,7 +1,7 @@
 import os
 import numpy as np
 from gym import utils
-from wgcsl.envs import fetch_env
+from goat.envs import fetch_env
 
 
 REACH_MODEL_XML_PATH = os.path.join('fetch', 'reach.xml')
