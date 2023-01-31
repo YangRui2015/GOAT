@@ -1,7 +1,7 @@
 # OOD Generalization for Offline Goal-conditioned RL (GOAT)
 Code for GOAT, a new weighted imitation-based method to improve OOD generalization for offline GCRL.
 
-We provide offline goal-conditioned benchmark with offline dataset in the 'offline_data' folder, including 'random' and 'expert' settings. The 'buffer.pkl' is used for WGCSL and other algorithms included in our codes (GCSL, MARVIL, BC, HER, DDPG, Actionable Models), and each item in the buffer are also provided as *.npy files for training Goal BCQ and Goal CQL. Due to the storage limitation, the full offline dataset is in this anonymous google drive link: https://drive.google.com/drive/folders/1SIo3qFmMndz2DAnUpnCozP8CpG420ANb.
+We provide the benchmark for OOD generaliztion of offline GCRL with offline datasets in the 'offline_data' folder. Due to the storage limitation, we provide PointReach, FetchReach, FetchPush datasets, and the full offline dataset will be available soon.
 
 
 <!-- 
@@ -23,7 +23,9 @@ python3.6+, tensorflow, gym, mujoco, mpi4py
 
 
 ## Usage
-Environments: PointFixedEnv-v1, FetchReach, FetchSlide, FetchPick, HandReach.
+Environments: PointFixedEnv-v1, FetchReach, FetchPush, FetchPick, FetchSlide, HandReach.
+
+Corresponding OOD testing environments are automatically used for evaluation after training.
 
 GOAT:  
 ```bash
