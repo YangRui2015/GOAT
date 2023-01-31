@@ -23,7 +23,7 @@ DEFAULT_ENV_PARAMS = {
         'n_cycles': 5,  
         'n_batches': 5, 
         'baw_delta': 0.15,
-        'num_epoch': 100,
+        'num_epoch': 5, #100,
     },
     'FetchPush-v1':{
         'batch_size': 512,
@@ -142,10 +142,14 @@ def cached_make_env(make_env):
         CACHED_ENVS[make_env] = env
     return CACHED_ENVS[make_env]
 
+
 def prepare_mode(kwargs):
     if 'mode' in kwargs.keys():
         mode = kwargs['mode']
-        if mode == 'goat':
+        if 'ER' in mode:
+                kwargs['use_ER'] = True
+                
+        if 'goat' in mode:
             kwargs['use_supervised'] = True
             kwargs['use_ensemble'] = True
         else: 
@@ -156,6 +160,8 @@ def prepare_mode(kwargs):
                 kwargs['use_supervised'] = True
             elif 'conservation' in mode:  # DDPG+CQL
                 kwargs['use_conservation'] = True
+            else:  # for DDPG, DDPG+HER
+                pass
 
     else: # for DDPG, DDPG+HER
         kwargs['use_supervised'] = False

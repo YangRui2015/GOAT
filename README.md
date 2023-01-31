@@ -1,14 +1,13 @@
 # OOD Generalization for Offline Goal-conditioned RL (GOAT)
-The code is based on WGCSL's.
-Code for ICLR 2022 paper [*Rethinking Goal-Conditioned Supervised Learning and Its Connection to Offline RL*](https://openreview.net/forum?id=KJztlfGPdwW) ([website](https://sites.google.com/view/wgcsl/)).
-WGCSL is a simple but effective algorithm for offline goal-conditioned Reinforcement Learning via weighted supervised learning. 
+Code for GOAT, a new weighted imitation-based method to improve OOD generalization for offline GCRL.
 
 We provide offline goal-conditioned benchmark with offline dataset in the 'offline_data' folder, including 'random' and 'expert' settings. The 'buffer.pkl' is used for WGCSL and other algorithms included in our codes (GCSL, MARVIL, BC, HER, DDPG, Actionable Models), and each item in the buffer are also provided as *.npy files for training Goal BCQ and Goal CQL. Due to the storage limitation, the full offline dataset is in this anonymous google drive link: https://drive.google.com/drive/folders/1SIo3qFmMndz2DAnUpnCozP8CpG420ANb.
 
 
+<!-- 
 <div style="text-align: center;">
 <img src="pic/offline_hard_tasks.png" >
-</div>
+</div> -->
 
 
 ## Requirements
@@ -24,54 +23,61 @@ python3.6+, tensorflow, gym, mujoco, mpi4py
 
 
 ## Usage
-Environments: PointReach, PointRooms, Reacher, SawyerReach, SawyerDoor,FetchReach, FetchSlide, FetchPick, HandReach.
+Environments: PointFixedEnv-v1, FetchReach, FetchSlide, FetchPick, HandReach.
+
+GOAT:  
+```bash
+python -m goat.run --env FetchReach   --mode goat   --su_method exp_adv_2_clip10_baw_tanstd_norm01  --offline_train --load_path ./offline_data/FetchReach/   --load_buffer --log_path ${path_name}    --save_path ${path_name}
+```
+For GOAT+expectile regression, please use mode='goat_ER'
+
 
 WGCSL: 
 ```bash
-python -m  wgcsl.run  --env=FetchReach --num_env 1 --mode supervised --su_method gamma_exp_adv_clip10_baw  --load_path ./offline_data/expert/FetchReach/  --offline_train  --load_buffer  --log_path ./${path_name}
+python -m  goat.run  --env=FetchReach  --mode supervised --su_method exp_adv_2_clip10_baw  --load_path ./offline_data/FetchReach/   --offline_train  --load_buffer  --log_path ${path_name}
 ```
-Note: For random datasets of harder tasks (from FetchPush to HandReach), we suggest using 'exp_adv_clip10_baw' instead of 'gamma_exp_adv_clip10_baw'.
+
 
 GCSL:
 ```bash
-python -m  wgcsl.run  --env=FetchReach --num_env 1 --mode supervised --load_path ./offline_data/expert/FetchReach/  --offline_train  --load_buffer
+python -m  goat.run  --env=FetchReach  --mode supervised --load_path ./offline_data/FetchReach/   --offline_train  --load_buffer
 ```
 
 
-Goal MARVIL
+MARVIL+HER
 ```bash
-python -m  wgcsl.run  --env=FetchReach --num_env 1 --mode supervised  --load_path ./offline_data/random/FetchReach/ --load_buffer --offline_train  --su_method exp_adv  --no_relabel True 
+python -m  goat.run  --env=FetchReach  --mode supervised  --load_path ./offline_data/FetchReach/ --load_buffer --offline_train  --su_method exp_adv_2_clip10
 ```
 
-Goal Behavior Cloning
+BC
 ```bash
-python -m  wgcsl.run  --env=FetchReach --num_env 1 --mode supervised  --load_path ./offline_data/expert/FetchReach/ --load_buffer --offline_train   --no_relabel True 
+python -m  goat.run  --env=FetchReach  --mode supervised  --load_path ./offline_data/FetchReach/ --load_buffer --offline_train   --no_relabel
 ```
 
-offline HER
+DDPG+HER
 ```bash
-python -m  wgcsl.run  --env=FetchReach --num_env 1 --mode her  --load_path ./offline_data/expert/FetchReach/ --load_buffer --offline_train   
+python -m  goat.run  --env=FetchReach  --mode her  --load_path ./offline_data/FetchReach/ --load_buffer --offline_train   
 ```
 
-offline DDPG
+CQL+HER
 ```bash
-python -m  wgcsl.run  --env=FetchReach --num_env 1 --mode her  --load_path ./offline_data/expert/FetchReach/ --load_buffer --offline_train   --no_relabel True 
+python -m  goat.run  --env=FetchReach  --mode conservation  --load_path ./offline_data/FetchReach/ --load_buffer --offline_train 
 ```
 
 ### Ablations
-
-GCSL + Discount Relabeling Weight:
+Replcing mode and su_method with the following arguments.
+GOAT+ER:  
 ```bash
-python -m  wgcsl.run  --env=FetchReach  --num_env 1 --load_path ./offline_data/expert/FetchReach/ --load_buffer --offline_train  --mode supervised --su_method gamma
+--mode goat_ER   --su_method exp_adv_2_clip10_baw_tanstd_norm01
 ```
 
-GCSL + Goal-conditioned Exponential Advantage Weight:
+GOAT:  
 ```bash
-python -m  wgcsl.run  --env=FetchReach --num_env 1 --mode supervised --load_path ./offline_data/expert/FetchReach/ --load_buffer --offline_train  --su_method exp_adv_clip10
+--mode goat   --su_method exp_adv_2_clip10_baw_tanstd_norm01
 ```
 
-GCSL + Best-advantage Weight
+WGCSL+Ensemble
 ```bash
-python -m  wgcsl.run  --env=FetchReach --num_env 1 --mode supervised --load_path ./offline_data/expert/FetchReach/ --load_buffer --offline_train  --su_method baw
+--mode ensemble_supervised   --su_method exp_adv_2_clip10_baw
 ```
 

@@ -170,7 +170,6 @@ def make_sample_transitions(replay_strategy, replay_k, reward_fun, no_relabel=Fa
                     value = get_Q_pi(o=transitions['o'], g=transitions['g']).reshape(-1)
                 next_value = get_Q_pi(o=transitions['o_2'], g=transitions['g']).reshape(-1)
                 adv = _get_reward(transitions['ag_2'], transitions['g']) + gamma * next_value  - value
-                vque.update(value)
 
                 if 'baw' in method_lis:
                     global global_threshold

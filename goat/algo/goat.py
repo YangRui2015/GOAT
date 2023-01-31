@@ -350,7 +350,7 @@ class GOAT(object):
         return res
 
     def _create_network(self, reuse=False):
-        logger.info("Creating a WGCSL agent with action space %d x %s..." % (self.dimu, self.max_u))
+        logger.info("Creating an agent with action space %d x %s..." % (self.dimu, self.max_u))
         self.sess = tf_util.get_session()
 
         # running averages
