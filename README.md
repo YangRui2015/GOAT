@@ -1,5 +1,9 @@
 # OOD Generalization for Offline Goal-conditioned RL (GOAT)
-Code for GOAT, a new weighted imitation-based method to improve OOD generalization for offline GCRL.
+```diff
++ This repository is currently in preparation. We kindly ask for your patience while we finalize its release. 
++ Thank you for your attention!
+```
+Code for GOAT, a new weighted imitation-based method to improve OOD generalization for offline GCRL. 
 
 We provide the benchmark for OOD generaliztion of offline GCRL with offline datasets in the 'offline_data' folder. Due to the storage limitation, we provide PointReach, FetchReach, FetchPush, FetchPick datasets, and the full offline dataset will be available soon.
 
