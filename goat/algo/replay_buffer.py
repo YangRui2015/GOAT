@@ -1,7 +1,6 @@
 import threading
 import pickle
 import numpy as np
-from goat.common import logger
 
 class ReplayBuffer:
     def __init__(self, buffer_shapes, size_in_transitions, T, sample_transitions, default_sampler, info=None): 
@@ -20,7 +19,6 @@ class ReplayBuffer:
         self.sample_transitions = sample_transitions
         self.default_sampler = default_sampler
         self.info = info
-        self.kde = self.info['kde'] if 'kde' in self.info.keys() else None
         # self.buffers is {key: array(size_in_episodes x T or T+1 x dim_key)}
         self.buffers = {key: np.empty([self.size, *shape])
                         for key, shape in buffer_shapes.items()}
@@ -127,15 +125,9 @@ class ReplayBuffer:
             data = pickle.load(fp)     
             size = data['o'].shape[0]
             self.current_size = size
-            # if size > self.size:
             self.buffers = {key: np.empty([size, *shape]) for key, shape in self.buffer_shapes.items()}
             self.size = size
             for key in self.buffer_shapes.keys():
                 self.buffers[key][:size] = data[key][:size]
 
 
-if __name__ == "__main__":
-    buffer_shapes = {'a':(2, 1)}
-    buffer = ReplayBuffer(buffer_shapes, 10, 2, None)
-    buffer.store_episode({'a':np.random.random((1,2,1))})
-    import pdb; pdb.set_trace()

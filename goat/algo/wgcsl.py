@@ -1,5 +1,4 @@
 from collections import OrderedDict
-import copy
 import numpy as np
 import tensorflow as tf
 from tensorflow.contrib.staging import StagingArea
@@ -24,8 +23,8 @@ class WGCSL(object):
                  rollout_batch_size, subtract_goals, relative_goals, clip_pos_returns, clip_return,
                  sample_transitions, random_sampler, gamma,  supervised_sampler, use_supervised, su_method,
                  use_conservation=False, conservation_sampler=None, reuse=False, offline_train=False,
-                obs_to_goal=None, use_kde=False, use_ER=False, ER_tau=0.5, **kwargs):
-        """Implementation of policy with value funcion that is used in combination with WGCSL
+                obs_to_goal=None, use_ER=False, ER_tau=0.5, **kwargs):
+        """Implementation of WGCSL
         """
         if self.clip_return is None:
             self.clip_return = np.inf
@@ -69,7 +68,6 @@ class WGCSL(object):
 
         if self.use_supervised:
             self.supervised_loss = []
-            self.weighted_loss = []
             self.critic_loss = []
             self.actor_loss = []
             sampler = self.supervised_sampler
@@ -160,7 +158,7 @@ class WGCSL(object):
         else:
             return ret
     
-    def get_Q(self, o, g, u, std=False):
+    def get_Q(self, o, g, u, std=False): # std is not used
         o = np.clip(o, -self.clip_obs, self.clip_obs)
         g = np.clip(g, -self.clip_obs, self.clip_obs)
 
@@ -170,14 +168,10 @@ class WGCSL(object):
             policy.g_tf: g.reshape(-1, self.dimg),
             policy.u_tf: u.reshape(-1, self.dimu)
         }
-        if not std:
-            ret = self.sess.run(policy.Q_tf, feed_dict=feed)
-        else:
-            out = [policy.Q_tf, policy.Q_tf_std]
-            ret = self.sess.run(out, feed_dict=feed)
+        ret = self.sess.run(policy.Q_tf, feed_dict=feed)
         return ret
 
-    def get_Q_pi(self, o, g, std=False):
+    def get_Q_pi(self, o, g, std=False): # std is not used
         o = np.clip(o, -self.clip_obs, self.clip_obs)
         g = np.clip(g, -self.clip_obs, self.clip_obs)
         policy = self.main #self.target
@@ -195,13 +189,13 @@ class WGCSL(object):
         feed = {
             policy.o_tf: o.reshape(-1, self.dimo),
             policy.g_tf: g.reshape(-1, self.dimg),
-            policy.u_tf: np.zeros((o.size // self.dimo, self.dimu), dtype=np.float32) #??
+            policy.u_tf: np.zeros((o.size // self.dimo, self.dimu), dtype=np.float32) 
         }
 
         ret = self.sess.run(policy.Q_tf, feed_dict=feed)
         return ret
 
-    def store_episode(self, episode_batch, update_stats=True): #init=False
+    def store_episode(self, episode_batch, update_stats=True): 
         """
         episode_batch: array of batch_size x (T or T+1) x dim_key 'o' is of size T+1, others are of size T
         """
@@ -216,7 +210,7 @@ class WGCSL(object):
 
             o, g, ag = transitions['o'], transitions['g'], transitions['ag']
             transitions['o'], transitions['g'] = self._preprocess_og(o, ag, g)
-            # training normalizer online 
+            # updating normalizer for online setting
             self.o_stats.update(transitions['o'])
             self.g_stats.update(transitions['g'])
             self.o_stats.recompute_stats()
@@ -266,17 +260,14 @@ class WGCSL(object):
         transitions = self.buffer.sample(batch_size)  
         if self.use_supervised:
             loss = transitions.pop('loss')
-            if type(loss) == list:
-                self.weighted_loss.append(loss[0])
-                self.supervised_loss.append(loss[1])
-            else:
-                self.supervised_loss.append(loss)
+            self.supervised_loss.append(loss)
             
         o, o_2, g = transitions['o'], transitions['o_2'], transitions['g']
         ag, ag_2 = transitions['ag'], transitions['ag_2']
         transitions['o'], transitions['g'] = self._preprocess_og(o, ag, g)
         transitions['o_2'], transitions['g_2'] = self._preprocess_og(o_2, ag_2, g)
 
+        # updating normalizer stats for the offline setting
         if self.offline_train:
             self.o_stats.update(transitions['o'])
             self.g_stats.update(transitions['g'])
@@ -300,14 +291,15 @@ class WGCSL(object):
 
     def train(self, stage=True):
         if stage:
-            transitions = self.stage_batch()
+            self.stage_batch()
         if not self.use_supervised:
+            # used for DDPG and HER
             critic_loss, actor_loss, Q_grad, pi_grad = self._grads()
             self._update(Q_grad, pi_grad)
             return critic_loss, actor_loss
-        # WGCSL needs to learn the value function
         else:
             critic_loss = 0
+            # WGCSL needs to learn the value function
             # GCSL does not need to learn value function
             if self.use_supervised and self.su_method not in ['', 'gamma']:
                 critic_loss = self.update_critic_only()

@@ -53,8 +53,8 @@ class RolloutWorker:
         self.reset_all_rollouts()
 
         # compute observations
-        o = np.empty((self.rollout_batch_size, self.dims['o']), np.float32)  # observations
-        ag = np.empty((self.rollout_batch_size, self.dims['g']), np.float32)  # achieved goals
+        o = np.empty((self.rollout_batch_size, self.dims['o']), np.float32) 
+        ag = np.empty((self.rollout_batch_size, self.dims['g']), np.float32)  
         o[:] = self.initial_o
         ag[:] = self.initial_ag
 

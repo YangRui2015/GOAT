@@ -1,5 +1,5 @@
 import numpy as np
-import tensorflow as tf  # pylint: ignore-module
+import tensorflow as tf  
 import copy
 import os
 import functools
@@ -110,9 +110,6 @@ def conv2d(x, num_filters, name, filter_size=(3, 3), stride=(1, 1), pad="SAME", 
         # there are "num input feature maps * filter height * filter width"
         # inputs to each hidden unit
         fan_in = intprod(filter_shape[:3])
-        # each unit in the lower layer receives a gradient from:
-        # "num output feature maps * filter height * filter width" /
-        #   pooling size
         fan_out = intprod(filter_shape[:2]) * num_filters
         # initialize weights with random weights
         w_bound = np.sqrt(6. / (fan_in + fan_out))
@@ -367,8 +364,8 @@ def load_variables(load_path, variables=None, sess=None):
             restores.append(v.assign(d))
     else:
         for v in variables:
-            if 'ddpg' in list(loaded_params.keys())[0]:
-                restores.append(v.assign(loaded_params[v.name.replace('wgcsl', 'ddpg')]))
+            if 'wgcsl' in list(loaded_params.keys())[0]:
+                restores.append(v.assign(loaded_params[v.name.replace('goat', 'wgcsl')]))
             else:
                 restores.append(v.assign(loaded_params[v.name]))
 
@@ -397,26 +394,7 @@ def adjust_shape(placeholder, data):
         data = np.array(data)
 
     placeholder_shape = [x or -1 for x in placeholder.shape.as_list()]
-
-    assert _check_shape(placeholder_shape, data.shape), \
-        'Shape of data {} is not compatible with shape of the placeholder {}'.format(data.shape, placeholder_shape)
-
     return np.reshape(data, placeholder_shape)
-
-
-def _check_shape(placeholder_shape, data_shape):
-    ''' check if two shapes are compatible (i.e. differ only by dimensions of size 1, or by the batch dimension)'''
-
-    return True
-    squeezed_placeholder_shape = _squeeze_shape(placeholder_shape)
-    squeezed_data_shape = _squeeze_shape(data_shape)
-
-    for i, s_data in enumerate(squeezed_data_shape):
-        s_placeholder = squeezed_placeholder_shape[i]
-        if s_placeholder != -1 and s_data != s_placeholder:
-            return False
-
-    return True
 
 
 def _squeeze_shape(shape):

@@ -16,7 +16,7 @@ def dims_to_shapes(input_dims):
     return {key: tuple([val]) if val > 0 else tuple() for key, val in input_dims.items()}
 
 
-class GOAT(object):
+class GOAT_V(object):
     @store_args
     def __init__(self, input_dims, buffer_size, hidden, layers, network_class, polyak, batch_size,
                  Q_lr, pi_lr, norm_eps, norm_clip, max_u, action_l2, clip_obs, scope, T,
@@ -77,7 +77,6 @@ class GOAT(object):
                 'gamma':self.gamma,
                 'train_policy':self.train_policy,
                 'get_Q_pi':self.get_Q_pi,
-                'get_Q': self.get_Q,
                 'method': self.su_method,
                 'baw_delta':self.baw_delta,
                 'baw_max': self.baw_max,
@@ -88,15 +87,8 @@ class GOAT(object):
                 'weight_min': self.weight_min,
                 'weight_max': self.weight_max,
             }
-        elif self.use_conservation:
-            sampler = self.conservation_sampler
-            info = {
-                'get_Q': self.get_Q,
-                'random_action_fun': self._random_action
-            }
-        else: # for HER
-            sampler = self.sample_transitions
-            info = {}
+        else: 
+            raise NotImplementedError('Other algorihtms are not implemented for V verison')
         
         
         self.buffer = ReplayBuffer(buffer_shapes, buffer_size, self.T, sampler, self.sample_transitions, info)  
@@ -139,7 +131,7 @@ class GOAT(object):
         # values to compute
         vals = [policy.pi_tf]
         if compute_Q:
-            vals += [policy.Q_pi_tf]
+            vals += [policy.V_tf]
         # feed
         feed = {
             policy.o_tf: o.reshape(-1, self.dimo),
@@ -163,23 +155,6 @@ class GOAT(object):
             return ret[0]
         else:
             return ret
-    
-    def get_Q(self, o, g, u, std=False):
-        o = np.clip(o, -self.clip_obs, self.clip_obs)
-        g = np.clip(g, -self.clip_obs, self.clip_obs)
-
-        policy = self.main
-        feed = {
-            policy.o_tf: o.reshape(-1, self.dimo),
-            policy.g_tf: g.reshape(-1, self.dimg),
-            policy.u_tf: u.reshape(-1, self.dimu)
-        }
-        if not std:
-            ret = self.sess.run(policy.Q_tf, feed_dict=feed)
-        else:
-            out = [policy.Q_tf, policy.Q_tf_std]
-            ret = self.sess.run(out, feed_dict=feed)
-        return ret
 
     def get_Q_pi(self, o, g, std=False):
         o = np.clip(o, -self.clip_obs, self.clip_obs)
@@ -190,23 +165,12 @@ class GOAT(object):
             policy.g_tf:g.reshape(-1, self.dimg)
         }
         if not std:
-            ret = self.sess.run(policy.Q_pi_tf, feed_dict=feed)
+            ret = self.sess.run(policy.V_tf, feed_dict=feed)
         else:
-            out = [policy.Q_pi_tf, policy.Q_pi_tf_std] 
+            out = [policy.V_tf, policy.V_tf_std] 
             ret = self.sess.run(out, feed_dict=feed)
         return ret
 
-    def get_target_Q(self, o, g, a, ag):
-        o, g = self._preprocess_og(o, ag, g)
-        policy = self.main
-        feed = {
-            policy.o_tf: o.reshape(-1, self.dimo),
-            policy.g_tf: g.reshape(-1, self.dimg),
-            policy.u_tf: np.zeros((o.size // self.dimo, self.dimu), dtype=np.float32) 
-        }
-
-        ret = self.sess.run(policy.Q_tf, feed_dict=feed)
-        return ret
 
     def store_episode(self, episode_batch, update_stats=True): 
         """
@@ -247,22 +211,22 @@ class GOAT(object):
         return pi_sl_loss
 
     def _sync_optimizers(self):
-        self.Q_adam.sync()
+        self.V_adam.sync()
         self.pi_adam.sync()
 
     def _grads(self):
         # Avoid feed_dict here for performance!
-        critic_loss, actor_loss, Q_grad, pi_grad = self.sess.run([  
-            self.Q_loss_tf,
-            self.main.Q_pi_tf,
-            self.Q_grad_tf,
+        critic_loss, actor_loss, V_grad, pi_grad = self.sess.run([  
+            self.V_loss_tf,
+            self.main.V_tf,
+            self.V_grad_tf,
             self.pi_grad_tf,  
         ])
-        return critic_loss, actor_loss, Q_grad, pi_grad
+        return critic_loss, actor_loss, V_grad, pi_grad
 
 
-    def _update(self, Q_grad, pi_grad):
-        self.Q_adam.update(Q_grad, self.Q_lr)
+    def _update(self, V_grad, pi_grad):
+        self.V_adam.update(V_grad, self.Q_lr)
         self.pi_adam.update(pi_grad, self.pi_lr)
 
 
@@ -304,26 +268,20 @@ class GOAT(object):
     def train(self, stage=True):
         if stage:
             self.stage_batch()
-        if not self.use_supervised:
-            # used for DDPG and HER
-            critic_loss, actor_loss, Q_grad, pi_grad = self._grads()
-            self._update(Q_grad, pi_grad)
-            return critic_loss, actor_loss
-        else:
-            critic_loss = 0
-            # WGCSL needs to learn the value function
-            # GCSL does not need to learn value function
-            if self.use_supervised and self.su_method not in ['', 'gamma']:
-                critic_loss = self.update_critic_only()
+        critic_loss = 0
+        # WGCSL needs to learn the value function
+        # GCSL does not need to learn value function
+        if self.use_supervised and self.su_method not in ['', 'gamma']:
+            critic_loss = self.update_critic_only()
         return critic_loss, 0
 
 
     def update_critic_only(self):
-        critic_loss, Q_grad = self.sess.run([  
-            self.Q_loss_tf,
-            self.Q_grad_tf,
+        critic_loss, V_grad = self.sess.run([  
+            self.V_loss_tf,
+            self.V_grad_tf,
         ])
-        self.Q_adam.update(Q_grad, self.Q_lr)
+        self.V_adam.update(V_grad, self.Q_lr)
         return critic_loss
 
     def _init_target_net(self):
@@ -384,58 +342,52 @@ class GOAT(object):
         assert len(self._vars("main")) == len(self._vars("target"))
 
         # independent loss function
-        target_Q_pi_tf_list = self.target.Q_pi_tf_list
-        main_Q_tf_list = self.main.Q_tf_list
+        target_V_tf_list = self.target.V_tf_list
+        main_V_tf_list = self.main.V_tf_list
         self.batch_r = batch_tf['r']
         clip_range = (-self.clip_return, self.clip_return)
-        Q_loss_list = []
-        for target_Q_pi_tf, main_Q_tf in zip(target_Q_pi_tf_list, main_Q_tf_list):
-            target_tf = tf.clip_by_value(batch_tf['r'] + self.gamma * target_Q_pi_tf, *clip_range)
+        V_loss_list = []
+        for target_V_tf, main_V_tf in zip(target_V_tf_list, main_V_tf_list):
+            target_tf = tf.clip_by_value(batch_tf['r'] + self.gamma * target_V_tf, *clip_range)
             if self.use_ER: # expectile regression
-                Q_diff = tf.stop_gradient(target_tf) - main_Q_tf
-                pos_idxs = tf.greater(Q_diff,0.0)
+                V_diff = tf.stop_gradient(target_tf) - main_V_tf
+                pos_idxs = tf.greater(V_diff,0.0)
                 pos_idxs_float = tf.cast(pos_idxs,dtype=tf.float32)
                 ER_weight = tf.ones(self.batch_size) * self.ER_tau + (1 - 2 * self.ER_tau) * pos_idxs_float
-                Q_loss_tf = (self.batch_size / tf.reduce_sum(ER_weight)) * tf.reduce_mean(ER_weight * tf.square(Q_diff)) 
+                V_loss_tf = (self.batch_size / tf.reduce_sum(ER_weight)) * tf.reduce_mean(ER_weight * tf.square(V_diff)) 
             else:
-                Q_loss_tf = tf.reduce_mean(tf.square(tf.stop_gradient(target_tf) - main_Q_tf))
-            Q_loss_list.append(Q_loss_tf)
-        self.Q_loss_tf = tf.reduce_sum(Q_loss_list)
-        if self.use_conservation:
-            self.Q_loss_tf +=  tf.clip_by_value(tf.reduce_mean(self.main.Q_tf_neg), *clip_range)
-
-        # MSG loss, pessimistic policy optimization, used for comparison
-        if self.use_MSG:
-            self.pi_loss_tf = -tf.reduce_mean(self.main.Q_pi_tf - self.MSG_ratio * self.main.Q_pi_tf_std) 
-        else:
-            self.pi_loss_tf = -tf.reduce_mean(self.main.Q_pi_tf)
-        self.pi_loss_tf += self.action_l2 * tf.reduce_mean(tf.square(self.main.pi_tf / self.max_u))
+                V_loss_tf = tf.reduce_mean(tf.square(tf.stop_gradient(target_tf) - main_V_tf))
+            V_loss_list.append(V_loss_tf)
+        self.V_loss_tf = tf.reduce_sum(V_loss_list)
 
         # training policy with supervised learning
         self.gcsl_weight_tf = tf.placeholder(tf.float32, shape=(None,) , name='weights')
         self.weighted_sl_loss = tf.reduce_mean(tf.square(self.main.u_tf - self.main.pi_tf),axis=1)
         self.policy_sl_loss = tf.reduce_mean(self.gcsl_weight_tf * self.weighted_sl_loss)  
 
-        Q_grads_tf = tf.gradients(self.Q_loss_tf, self._vars('main/Q'))
+        self.pi_loss_tf = -tf.reduce_mean(self.main.V_tf)
+        self.pi_loss_tf += self.action_l2 * tf.reduce_mean(tf.square(self.main.pi_tf / self.max_u))
+
+        V_grads_tf = tf.gradients(self.V_loss_tf, self._vars('main/V'))
         pi_grads_tf = tf.gradients(self.pi_loss_tf, self._vars('main/pi'))
         pi_sl_grads_tf = tf.gradients(self.policy_sl_loss, self._vars('main/pi'))
-        assert len(self._vars('main/Q')) == len(Q_grads_tf)
+        assert len(self._vars('main/V')) == len(V_grads_tf)
         assert len(self._vars('main/pi')) == len(pi_grads_tf) and len(self._vars('main/pi')) == len(pi_sl_grads_tf)
-        self.Q_grads_vars_tf = zip(Q_grads_tf, self._vars('main/Q'))
+        self.V_grads_vars_tf = zip(V_grads_tf, self._vars('main/V'))
         self.pi_grads_vars_tf = zip(pi_grads_tf, self._vars('main/pi'))
         self.pi_sl_grads_vars_tf = zip(pi_sl_grads_tf, self._vars('main/pi'))
-        self.Q_grad_tf = flatten_grads(grads=Q_grads_tf, var_list=self._vars('main/Q'))
+        self.V_grad_tf = flatten_grads(grads=V_grads_tf, var_list=self._vars('main/V'))
         # for ensemble
         self.pi_grad_tf = flatten_grads(grads=pi_grads_tf, var_list=self._vars('main/pi'))
         self.pi_sl_grad_tf = flatten_grads(grads=pi_sl_grads_tf, var_list=self._vars('main/pi'))
 
         # optimizers
-        self.Q_adam = MpiAdam(self._vars('main/Q'), scale_grad_by_procs=False)
+        self.V_adam = MpiAdam(self._vars('main/V'), scale_grad_by_procs=False)
         self.pi_adam = MpiAdam(self._vars('main/pi'), scale_grad_by_procs=False)
 
         # polyak averaging
-        self.main_vars = self._vars('main/Q') + self._vars('main/pi')
-        self.target_vars = self._vars('target/Q') + self._vars('target/pi')
+        self.main_vars = self._vars('main/V') + self._vars('main/pi')
+        self.target_vars = self._vars('target/V') + self._vars('target/pi')
         self.stats_vars = self._global_vars('o_stats') + self._global_vars('g_stats')
 
         self.init_target_net_op = list(

@@ -34,13 +34,6 @@ def get_OOD_envs(env, data_type):
             envs = ['FetchSlideOOD-Near2Near-v1', 'FetchSlideOOD-Near2Far-v1']
         else:
             envs = ['FetchSlideOOD-Left2Left-v1', 'FetchSlideOOD-Left2Right-v1', 'FetchSlideOOD-Right2Right-v1', 'FetchSlideOOD-Right2Left-v1']
-    elif 'Stack' in env:
-        if 'far' in data_type:
-            envs = ['FetchStackOOD-Near2Near-v1', 'FetchStackOOD-Near2Far-v1', 'FetchStackOOD-Far2Near-v1', 'FetchStackOOD-Far2Far-v1']
-        else:
-            envs = ['FetchStackOOD-Right2Left-v1', 'FetchStackOOD-Right2Right-v1', 'FetchStackOOD-Left2Left-v1', 'FetchStackOOD-Left2Right-v1']
-    elif 'Block' in env:
-        envs = ['HandBlockOOD-P2P-v0', 'HandBlockOOD-P2N-v0', 'HandBlockOOD-N2P-v0', 'HandBlockOOD-N2N-v0']
     else:
         envs = ['FetchPush-v1']
     return envs

@@ -138,7 +138,6 @@ def make_sample_transitions(replay_strategy, replay_k, reward_fun, no_relabel=Fa
         baw_delta, baw_max = info['baw_delta'], info['baw_max']
         relabel_ratio = info['relabel_ratio']
         update = info['update'] # whether to update the policy or only get the policy loss for validation
-        kde = info['kde'] if 'kde' in info.keys() else None
         if 'weight_ratio' in info.keys():
             weight_ratio, weight_min, weight_max = info['weight_ratio'], info['weight_min'], info['weight_max']
         else:
@@ -162,7 +161,7 @@ def make_sample_transitions(replay_strategy, replay_k, reward_fun, no_relabel=Fa
             else:
                 weights = np.ones(batch_size)
 
-            if 'adv' in method_lis:
+            if 'baw' in method_lis or 'adv' in method_lis or 'std' in method_lis:
                 if 'std' in method:
                     value, value_std = get_Q_pi(o=transitions['o'], g=transitions['g'], std=True)
                     value, value_std = value.reshape(-1), value_std.reshape(-1)
@@ -173,46 +172,50 @@ def make_sample_transitions(replay_strategy, replay_k, reward_fun, no_relabel=Fa
 
                 if 'baw' in method_lis:
                     global global_threshold
-                    if update:
-                        advque.update(adv)
-                        global_threshold = min(global_threshold + baw_delta, baw_max)
+                    advque.update(adv)
+                    global_threshold = min(global_threshold + baw_delta, baw_max)
                     threshold = advque.get(global_threshold)
+
+                # advantage-based weighting
+                tmp_adv = adv
+                if '2' in method_lis:
+                    tmp_adv *= 2
+                elif '3' in method_lis:
+                    tmp_adv *= 3
 
                 if 'exp' in method_lis:  # exp weights
                     if 'clip10' in method_lis:
-                        weights *= np.clip(np.exp(adv), 0, 10)
-                    elif '2' in method_lis:
-                        weights *= np.exp(2 * adv)
-                    elif '3' in method_lis:
-                        weights *= np.exp(3 * adv)
+                        weights *= np.clip(np.exp(tmp_adv), 0, 10)
                     else:
-                        weights *= np.exp(adv) 
+                        weights *= np.exp(tmp_adv) 
+                elif 'adv' in method_lis: # clip(adv, 0, M) weights
+                    if 'clip10' in method_lis:
+                        weights *= np.clip(tmp_adv, 0, 10)
+                    else:
+                        weights *= np.clip(tmp_adv, 0, np.inf)
 
+                # best advantage weight
                 if 'baw' in method_lis:
                     positive = adv.copy()
                     positive[adv >= threshold] = 1
                     positive[adv < threshold] = 0.05
                     weights *= positive
 
-
+                # uncertainty weight
                 if 'std' in method: 
                     if 'norm01' in method:
                         stdque.update(value_std)
                         std_min, std_max = stdque.min_max()
                         value_std = (value_std - std_min) / (std_max - std_min)
 
-                    if 'expstd' in method_lis:
-                        random_log('expstd')
-                        weights *= np.clip(weight_min * np.exp(value_std * weight_ratio), 0, weight_max)
-                    elif 'tanhstd' in method_lis:
+                    if 'tanhstd' in method_lis:
                         random_log('tanhstd')
                         weights *= np.clip(np.tanh(value_std * weight_ratio) + weight_min, 0, weight_max)
                     else:
                         random_log('std')
                         weights *= np.clip(value_std * weight_ratio + weight_min, 0, weight_max)
-                    
-            weighted_loss = train_policy(o=transitions['o'], g=transitions['g'], u=transitions['u'], weights=weights, update=update)  
-            loss = weighted_loss
+            # weighted supervised loss
+            loss = train_policy(o=transitions['o'], g=transitions['g'], u=transitions['u'], weights=weights, update=update)  
 
         transitions['r'] = _get_reward(transitions['ag_2'], transitions['g']) 
         transitions['loss'] = loss

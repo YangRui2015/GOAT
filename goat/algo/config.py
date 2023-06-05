@@ -4,10 +4,12 @@ import gym
 
 from goat.common import logger
 from goat.algo.goat import GOAT
+from goat.algo.goat_V import GOAT_V
 from goat.algo.wgcsl import WGCSL
+from goat.algo.wgcsl_V import WGCSL_V
 from goat.algo.supervised_sampler import make_sample_transitions, make_random_sample
 from goat.common.monitor import Monitor
-from goat.envs.multi_world_wrapper import PointGoalWrapper, SawyerGoalWrapper, ReacherGoalWrapper, FetchGoalWrapper
+from goat.envs.multi_world_wrapper import PointGoalWrapper, FetchGoalWrapper
 
 # offline parameters
 DEFAULT_ENV_PARAMS = {
@@ -23,7 +25,7 @@ DEFAULT_ENV_PARAMS = {
         'n_cycles': 5,  
         'n_batches': 5, 
         'baw_delta': 0.15,
-        'num_epoch': 5, #100,
+        'num_epoch': 100,
     },
     'FetchPush-v1':{
         'batch_size': 512,
@@ -38,7 +40,7 @@ DEFAULT_ENV_PARAMS = {
         'n_batches': 20, 
         'baw_delta': 0.01,
         'num_epoch':100, 
-        'relabel_ratio': 0.5,  # 0.2 for leftright, 0.5 for far  
+        'relabel_ratio': 0.5,  
         },
     'FetchPickAndPlace-v1':{
         'batch_size': 512,
@@ -63,7 +65,7 @@ DEFAULT_PARAMS = {
     'max_u': 1.,  # max absolute value of actions on each coordinate
     'layers': 3,  # number of layers in the critic/actor networks
     'hidden': 256,  # number of neurons in each hidden layers
-    'network_class': 'goat.algo.actor_critic:ActorCritic',    
+    'network_class': 'goat.network.actor_critic:ActorCritic',    
     'Q_lr': 5e-4,  # critic learning rate
     'pi_lr': 5e-4,  # actor learning rate
     'buffer_size': int(1E6),  # for experience replay
@@ -74,16 +76,16 @@ DEFAULT_PARAMS = {
     'relative_goals': False,
     # training
     'num_epoch':100, 
-    'n_cycles': 50,  # per epoch
+    'n_cycles': 5,  # per epoch for online fine-tuning
     'rollout_batch_size': 1,  # per mpi thread
-    'n_batches': 40,  # training batches per cycle
-    'batch_size': 256,  # per mpi thread, measured in transitions and reduced to even multiple of chunk_length.
+    'n_batches': 10,  # training batches per cycle
+    'batch_size': 512,  # per mpi thread, measured in transitions and reduced to even multiple of chunk_length.
     'n_test_rollouts': 100,  # number of test rollouts per epoch, each consists of rollout_batch_size rollouts
     'test_with_polyak': False,  # run test episodes with the target network
     # exploration, not used in the offline setting
     'random_eps': 0.3,  # percentage of time a random action is taken
     'noise_eps': 0.2,  # std of gaussian noise added to not-completely-random actions as a percentage of max_u
-    # random init episode, not used int the offline setting
+    # random init episode, not used in the offline setting
     'random_init': 0,
     'relabel_ratio': 1,    
 
@@ -116,6 +118,13 @@ DEFAULT_PARAMS = {
     # expectile regression
     'use_ER': False,
     'ER_tau': 0.5,
+
+    # MSG
+    'use_MSG': False,
+    'MSG_ratio': 5,
+
+    # use V for GOAT, WGCSL
+    'use_V': False,
 }
 
 
@@ -147,23 +156,28 @@ def prepare_mode(kwargs):
     if 'mode' in kwargs.keys():
         mode = kwargs['mode']
         if 'ER' in mode:
-                kwargs['use_ER'] = True
+            kwargs['use_ER'] = True
+        if 'MSG' in mode:
+            kwargs['use_MSG'] = True
                 
         if 'goat' in mode:
             kwargs['use_supervised'] = True
             kwargs['use_ensemble'] = True
         else: 
-            if 'ensemble' in mode:
+            if 'ensemble' in mode or 'MSG' in mode:
                 kwargs['use_ensemble'] = True
 
             if 'supervised' in mode: # BC, GCSL, WGCSL
                 kwargs['use_supervised'] = True
-            elif 'conservation' in mode:  # DDPG+CQL
+            elif 'conservation' in mode:  # CQL+HER
                 kwargs['use_conservation'] = True
-            else:  # for DDPG, DDPG+HER
-                pass
+            else:  # for DDPG, DDPG+HER, MSG+HER
+                kwargs['use_supervised'] = False
 
-    else: # for DDPG, DDPG+HER
+        if 'V' in mode:
+            kwargs['use_V'] = True
+
+    else: # for DDPG, DDPG+HER, MSG+HER
         kwargs['use_supervised'] = False
     return kwargs
 
@@ -219,10 +233,11 @@ def prepare_params(kwargs):
         kwargs['pi_lr'] = kwargs['lr']
         kwargs['Q_lr'] = kwargs['lr']
         del kwargs['lr']
+
     for name in ['buffer_size', 'hidden', 'layers','network_class','polyak','batch_size', 
                  'Q_lr', 'pi_lr', 'norm_eps', 'norm_clip', 'max_u','action_l2', 'clip_obs', 
                  'scope', 'relative_goals', 'use_supervised', 'use_conservation',
-                 'relabel_ratio', 'use_ER', 'ER_tau']:
+                 'relabel_ratio', 'use_ER', 'ER_tau', 'use_MSG', 'MSG_ratio']:
         wgcsl_params[name] = kwargs[name]
         kwargs['_' + name] = kwargs[name]
         del kwargs[name]
@@ -243,7 +258,7 @@ def configure_her(params):
     def reward_fun(ag_2, g, info):  # vectorized
         return env.compute_reward(achieved_goal=ag_2, desired_goal=g, info=info)
 
-    # Prepare configuration for HER.
+    # Prepare configuration
     her_params = {
         'reward_fun': reward_fun,
         'no_relabel': params['no_relabel']
@@ -303,11 +318,20 @@ def configure_agent(dims, params, reuse=False, use_mpi=True, clip_return=True, o
         'reward_fun':reward_fun
     } 
 
-    if agent_params['use_ensemble']:
-        agent_params['network_class'] = 'goat.algo.actor_critic_ensemble:ActorCritic_Ensemble'
-        policy = GOAT(reuse=reuse, **agent_params, use_mpi=use_mpi, offline_train=offline_train)  
+    use_V = params['use_V']
+    if not use_V:
+        if agent_params['use_ensemble']:
+            agent_params['network_class'] = 'goat.network.actor_critic_ensemble:ActorCritic_Ensemble'
+            policy = GOAT(reuse=reuse, **agent_params, use_mpi=use_mpi, offline_train=offline_train)  
+        else:
+            policy = WGCSL(reuse=reuse, **agent_params, use_mpi=use_mpi, offline_train=offline_train)  
     else:
-        policy = WGCSL(reuse=reuse, **agent_params, use_mpi=use_mpi, offline_train=offline_train)  
+        if agent_params['use_ensemble']:
+            agent_params['network_class'] = 'goat.network.actor_critic_ensemble_V:ActorCritic_Ensemble'
+            policy = GOAT_V(reuse=reuse, **agent_params, use_mpi=use_mpi, offline_train=offline_train)  
+        else:
+            agent_params['network_class'] = 'goat.network.actor_critic_V:ActorCritic'
+            policy = WGCSL_V(reuse=reuse, **agent_params, use_mpi=use_mpi, offline_train=offline_train)  
     return policy
 
 

@@ -41,7 +41,6 @@ def train(*, policy, rollout_worker, evaluator,
 
     best_success_rate = -1
     logger.info('Start training...')
-    # num_timesteps = n_epochs * n_cycles * rollout_length * number of rollout workers
     for epoch in range(n_epochs):
         time_start = time.time()
         rollout_worker.clear_history()
@@ -76,12 +75,9 @@ def train(*, policy, rollout_worker, evaluator,
         for key, val in evaluator.logs('test'):
             logger.record_tabular(key, mpi_average(val))
         if policy.use_supervised:
-            logger.record_tabular('train/expected value', - mpi_average(np.mean(actor_loss_list)))
             logger.record_tabular('train/critic loss', mpi_average(np.mean(critic_loss_list)))
             logger.record_tabular('train/supervised loss', mpi_average(np.mean(policy.supervised_loss)))
-            logger.record_tabular('train/weighted supervised loss', mpi_average(np.mean(policy.weighted_loss)))
             policy.supervised_loss = []
-            policy.weighted_loss = []
         
         if rank == 0:
             logger.dump_tabular()
@@ -145,8 +141,10 @@ def learn(*, env, num_epoch,
 
     params['env_name'] = env_name
     params['replay_strategy'] = replay_strategy
-    if env_name in config.DEFAULT_ENV_PARAMS:
-        params.update(config.DEFAULT_ENV_PARAMS[env_name])  # merge env-specific parameters in
+    # merge env-specific parameters for offline training
+    if env_name in config.DEFAULT_ENV_PARAMS and offline_train:
+        params.update(config.DEFAULT_ENV_PARAMS[env_name])  
+        
     params.update(**override_params)  # makes it possible to override any parameter
     params.update(kwargs)   # make kwargs part of params
     if 'num_epoch' in params:
@@ -157,6 +155,12 @@ def learn(*, env, num_epoch,
     params = config.prepare_params(params)
     params['rollout_batch_size'] = env.num_envs
     random_init = params['random_init']
+
+    if env_name == 'FetchSlide-v1' and 'right' in load_path.split('/')[-1]:
+        params['wgcsl_params']['relabel_ratio'] = 0.2
+    elif env_name == 'FetchSlide-v1' and 'far' in load_path.split('/')[-1]:
+        params['wgcsl_params']['relabel_ratio'] = 0.5
+
     # save total params
     if not no_log_params:
         dump_params(logger, params)

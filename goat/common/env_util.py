@@ -1,7 +1,3 @@
-"""
-Helpers for scripts like run_atari.py.
-"""
-
 import os
 import re
 import sys
@@ -30,7 +26,6 @@ register_envs()
 def get_game_envs():
     _game_envs = defaultdict(set)
     for env in gym.envs.registry.all():
-        # TODO: solve this with regexes
         try:
             env_type = env.entry_point.split(':')[0].split('.')[-1]
             _game_envs[env_type].add(env.id)
@@ -98,19 +93,10 @@ def make_env(env_id, env_type, mpi_rank=0, subrank=0, seed=None, reward_scale=1.
         env = FetchGoalWrapper(env)
     elif env_id.startswith('Hand'):
         env._max_episode_steps = 100
-    elif env_id.startswith('Sawyer'):
-        from goat.envs.multi_world_wrapper import SawyerGoalWrapper
-        env = SawyerGoalWrapper(env)
-        if not hasattr(env, '_max_episode_steps'):
-            env = gym.wrappers.TimeLimit(env, max_episode_steps=50)
     elif env_id.startswith('Point'):
         from goat.envs.multi_world_wrapper import PointGoalWrapper
         env = gym.wrappers.TimeLimit(env, max_episode_steps=50)
         env = PointGoalWrapper(env)
-    elif env_id.startswith('Reacher'):
-        from goat.envs.multi_world_wrapper import ReacherGoalWrapper
-        env._max_episode_steps = 50
-        env = ReacherGoalWrapper(env)
     else:
         env = gym.wrappers.TimeLimit(env, max_episode_steps=50)
 

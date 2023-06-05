@@ -54,8 +54,6 @@ class Point2DEnv(MultitaskEnv, Serializable):
             fixed_goal = np.array(fixed_goal)
         if fixed_goal_set is not None:
             self.fixed_set = True
-            #### circle
-            # circle_radius = 20
             angle = np.linspace(0,1,10) * np.pi
             x,y = circle_radius * np.cos(angle), circle_radius * np.sin(angle)
             gs = np.concatenate([x.reshape(-1,1), y.reshape(-1,1)], 1)
@@ -73,8 +71,6 @@ class Point2DEnv(MultitaskEnv, Serializable):
                 goal_tmp = goals
 
             self.fixed_goal_set = goal_tmp
-            # import pdb;pdb.set_trace()
-            # [(4,-4), (-4,4), (4,4), (-4,-4)]
         else:
             self.fixed_set = False
         if fixed_init_position is not None:
