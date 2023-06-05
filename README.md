@@ -1,4 +1,4 @@
-# OOD Generalization for Offline Goal-conditioned RL (GOAT)
+# Generalizable Offline goAl-condiTioned RL (GOAT)
 
 Code for the ICML 2023 paper "What is Essential for Unseen Goal Generalization of Offline Goal-conditioned RL?". GOAT is a new weighted supervised method to improve OOD generalization for offline GCRL. This repo is based on [baselines](https://github.com/openai/baselines) and [WGCSL](https://github.com/YangRui2015/AWGCSL).
 
